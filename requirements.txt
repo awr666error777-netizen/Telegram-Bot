@@ -1,0 +1,5 @@
+requests
+groq
+supabase
+flask
+gunicorn
