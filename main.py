@@ -4,12 +4,11 @@ from flask import Flask, request
 from supabase import create_client
 from groq import Groq
 
-# Инициализация клиентов
 app = Flask(__name__)
-supabase = create_client(os.environ.get('https://dkvxsnnqejircflgbeop.supabase.co'), os.environ.get('sb_publishable_tbpfVpzqpjRvXHJIrgUWEg_w9_fERH8'))
-groq_client = Groq(api_key=os.environ.get('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'))
+supabase = create_client(os.environ.get('SUPABASE_URL'), os.environ.get('SUPABASE_KEY'))
+groq_client = Groq(api_key=os.environ.get('GROQ_API_KEY'))
 
-TELEGRAM_TOKEN = os.environ.get('8744004969:AAHzBpcln3b3jBpbMegEoPsh1oOdlyJ8SmA')
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 MODEL_NAME = "llama-3.1-8b-instant"
 
 def send_telegram_message(chat_id, text):
@@ -35,6 +34,33 @@ def webhook():
 
     msg = update['message']
     chat_id = msg['chat']['id']
+    text = msg.get('text', '')
+
+    if text == '/start':
+        send_telegram_message(chat_id, "Привет! Я бот с Groq и Supabase. Задай вопрос!")
+        return 'OK'
+
+    history = load_history(chat_id)
+    history.append({"role": "user", "content": text})
+    
+    chat_completion = groq_client.chat.completions.create(
+        messages=history,
+        model=MODEL_NAME,
+        temperature=0.7,
+        max_tokens=1024
+    )
+    answer = chat_completion.choices[0].message.content
+    
+    history.append({"role": "assistant", "content": answer})
+    if len(history) > 20:
+        history = history[-20:]
+    save_history(chat_id, history)
+
+    send_telegram_message(chat_id, answer)
+    return 'OK'
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)    chat_id = msg['chat']['id']
     text = msg.get('text', '')
 
     if text == '/start':
