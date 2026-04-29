@@ -5,6 +5,8 @@ from supabase import create_client
 from groq import Groq
 
 app = Flask(__name__)
+
+# Клиенты инициализируются через переменные окружения
 supabase = create_client(os.environ.get('SUPABASE_URL'), os.environ.get('SUPABASE_KEY'))
 groq_client = Groq(api_key=os.environ.get('GROQ_API_KEY'))
 
@@ -51,36 +53,6 @@ def webhook():
     )
     answer = chat_completion.choices[0].message.content
     
-    history.append({"role": "assistant", "content": answer})
-    if len(history) > 20:
-        history = history[-20:]
-    save_history(chat_id, history)
-
-    send_telegram_message(chat_id, answer)
-    return 'OK'
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)    chat_id = msg['chat']['id']
-    text = msg.get('text', '')
-
-    if text == '/start':
-        send_telegram_message(chat_id, "Привет! Я бот с Groq и Supabase. Задай вопрос!")
-        return 'OK'
-
-    # Управление историей
-    history = load_history(chat_id)
-    history.append({"role": "user", "content": text})
-    
-    # Отправка в ИИ
-    chat_completion = groq_client.chat.completions.create(
-        messages=history,
-        model=MODEL_NAME,
-        temperature=0.7,
-        max_tokens=1024
-    )
-    answer = chat_completion.choices[0].message.content
-    
-    # Сохранение контекста
     history.append({"role": "assistant", "content": answer})
     if len(history) > 20:
         history = history[-20:]
