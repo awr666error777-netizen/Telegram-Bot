@@ -1,5 +1,5 @@
 requests
-supabase
 groq
+supabase
 flask
 gunicorn
