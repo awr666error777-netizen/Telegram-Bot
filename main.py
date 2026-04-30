@@ -75,9 +75,9 @@ def webhook():
     # Небольшая пауза, чтобы анимация не исчезла за 0.1 секунды
     time.sleep(1.5)
     
-    history.append({"role": "assistant", "content": answer})
-    if len(history) > 20:
-        history = history[-20:]
+        history.append({"role": "assistant", "content": answer})
+    # Применяем сжатие, если история слишком длинная
+    history = compress_history(history, keep_last=20, max_messages=50)
     save_history(chat_id, history)
 
     send_telegram_message(chat_id, answer)
