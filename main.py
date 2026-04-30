@@ -225,12 +225,7 @@ def save_global_facts(facts, chat_id, chat_type):
         }).execute()
 
 def load_global_facts_sample(current_chat_id, chat_type, limit=5):
-    """
-    Загружает релевантные факты из общей памяти.
-    - В личном чате: все не приватные факты + личные факты этого же пользователя.
-    - В группе: только не приватные факты (исключая факты из приватных чатов)
-      плюс факты этого пользователя, оставленные в группах.
-    """
+def load_global_facts_sample(current_chat_id, chat_type, limit=5):
     if chat_type == 'private':
         resp = (
             supabase.table('global_facts')
@@ -247,9 +242,6 @@ def load_global_facts_sample(current_chat_id, chat_type, limit=5):
             supabase.table('global_facts')
             .select('fact_text', 'is_private', 'source_chat_id', 'chat_type')
             .eq('is_private', False)
-            .or_(
-                f'chat_type.eq.group, source_chat_id.eq.{current_chat_id}'
-            )
             .order('created_at', desc=True)
             .limit(30)
             .execute()
