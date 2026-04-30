@@ -44,7 +44,7 @@ def webhook():
     text = msg.get('text', '')
 
     if text == '/start':
-        send_telegram_message(chat_id, "Привет! Я бот с Groq и Supabase. Задай вопрос!")
+        send_telegram_message(chat_id, "Привет! Я бот с Groq созданный при помощи закрытой модели Mythos Итером. Пообщаемся?")
         return 'OK'
 
     history = load_history(chat_id)
