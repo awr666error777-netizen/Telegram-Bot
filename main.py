@@ -30,27 +30,11 @@ def load_history(chat_id):
         supabase.table('users').insert({'chat_id': chat_id, 'history': []}).execute()
         return []
 
-# ... (все импорты, инициализация клиентов, send_telegram_message, load_history)
-
 def save_history(chat_id, history):
     supabase.table('users').upsert({'chat_id': chat_id, 'history': history}).execute()
 
-# ВОТ СЮДА ВСТАВЛЯЕМ НОВЫЕ ФУНКЦИИ
-def summarize_text(history_chunk):
-    # ... (тот код, что ты написал)
-    ...
-    return summary_response.choices[0].message.content
-
-def compress_history(history, keep_last=20, max_messages=50):
-    # ... (тот код, что ты написал)
-    ...
-    return compressed
-
-# КОНЕЦ ВСТАВКИ
-
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    # ...
     update = request.get_json()
     if 'message' not in update:
         return 'OK'
@@ -91,9 +75,9 @@ def webhook():
     # Небольшая пауза, чтобы анимация не исчезла за 0.1 секунды
     time.sleep(1.5)
     
-        history.append({"role": "assistant", "content": answer})
-    # Применяем сжатие, если история слишком длинная
-    history = compress_history(history, keep_last=20, max_messages=50)
+    history.append({"role": "assistant", "content": answer})
+    if len(history) > 20:
+        history = history[-20:]
     save_history(chat_id, history)
 
     send_telegram_message(chat_id, answer)
