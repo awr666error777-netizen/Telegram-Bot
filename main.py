@@ -28,10 +28,11 @@ SYSTEM_PROMPT = {
     "role": "system",
     "content": (
         "Ты — дружелюбный AI-помощник с отличной памятью. "
-        "Ты запоминаешь информацию о людях, с которыми общаешься, "
-        "и можешь упоминать неличные факты, если это уместно. "
-        "В групповых чатах никогда не раскрывай личную информацию, "
-        "полученную в приватных беседах."
+        "Ты запоминаешь информацию о людях, с которыми общаешься. "
+        "По умолчанию ты считаешь личную информацию конфиденциальной и не раскрываешь её в группах. "
+        "НО если пользователь явно сказал, что какой-то факт можно рассказывать другим, "
+        "ты можешь упоминать его даже в групповых чатах. "
+        "В сомнительных случаях лучше переспросить пользователя, можно ли поделиться информацией."
     )
 }
 
@@ -162,27 +163,40 @@ def compress_history(history, keep_last=10, max_messages=30):
 # ------------------------------------------------------------
 # Общая память (извлечение фактов, приватность)
 # ------------------------------------------------------------
-def extract_facts_from_message(user_text, chat_id, chat_type):
+def extract_facts_with_context(history_before_answer, user_message, chat_id, chat_type):
     """
-    Извлекает факты из сообщения пользователя и оценивает их приватность.
-    Возвращает список словарей: [{'fact': '...', 'is_private': bool}, ...]
+    Анализирует последнее сообщение пользователя в контексте всего диалога.
+    Возвращает список фактов с учётом явных разрешений и запретов.
     """
+    # Берём последние 10 сообщений для контекста (без ответа бота)
+    recent_history = history_before_answer[-10:] if len(history_before_answer) > 10 else history_before_answer
+
+    # Формируем контекст для Groq
+    transcript = ""
+    for msg in recent_history:
+        role = "Пользователь" if msg['role'] == 'user' else "Бот"
+        transcript += f"{role}: {msg['content']}\n"
+
     prompt = (
-        "Проанализируй сообщение и выдели краткие факты о пользователе "
-        "(интересы, мнения, события).\n"
-        "Для каждого факта определи, является ли он личным/конфиденциальным (true/false).\n"
-        "Личной считается информация, которую не стоит разглашать в публичном чате "
-        "(пароли, интимные подробности, финансовые данные, адреса, оценки других людей, секреты).\n"
-        "Если фактов нет, верни пустой ответ.\n"
-        "Формат: факт | true или false (каждый на новой строке)\n\n"
-        f"Сообщение: \"{user_text}\"\nФакты с оценкой:"
+        "Проанализируй диалог и выдели факты о пользователе.\n"
+        "ВАЖНО: Если пользователь явно сказал, что какую-то информацию МОЖНО или НЕЛЬЗЯ "
+        "рассказывать другим, обязательно учти это при оценке приватности.\n\n"
+        "Формат для каждого факта (на новой строке):\n"
+        "факт | true/false | обоснование\n\n"
+        "где true — личное (не рассказывать), false — можно рассказывать.\n"
+        "Обоснование — краткая причина твоего решения.\n\n"
+        f"Диалог:\n{transcript}\n"
+        f"Последнее сообщение пользователя: \"{user_message}\"\n\n"
+        "Факты с оценкой:"
     )
+
     response = groq_client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
         model=MODEL_NAME,
         temperature=0.1,
-        max_tokens=150
+        max_tokens=200
     )
+
     content = response.choices[0].message.content.strip()
     if not content:
         return []
@@ -191,12 +205,13 @@ def extract_facts_from_message(user_text, chat_id, chat_type):
     for line in content.split('\n'):
         line = line.strip()
         if '|' in line:
-            parts = line.rsplit('|', 1)
-            if len(parts) == 2:
+            parts = line.split('|')
+            if len(parts) >= 2:
                 fact_text = parts[0].strip()
-                is_priv = parts[1].strip().lower() == 'true'
+                is_priv_str = parts[1].strip().lower()
+                is_private = is_priv_str == 'true'
                 if fact_text:
-                    facts.append({'fact': fact_text, 'is_private': is_priv})
+                    facts.append({'fact': fact_text, 'is_private': is_private})
     return facts
 
 def save_global_facts(facts, chat_id, chat_type):
@@ -264,6 +279,20 @@ def webhook():
     chat_id = msg['chat']['id']
     text = msg.get('text', '')
 
+    # Ручное управление фактами
+    if text.startswith('/fact '):
+        fact_text = text[6:].strip()
+        is_private = any(word in fact_text.lower() for word in ['секрет', 'личное', 'только между нами'])
+        chat_type = 'private' if chat_id > 0 else 'group'
+        supabase.table('global_facts').insert({
+            'fact_text': fact_text,
+            'source_chat_id': chat_id,
+            'is_private': is_private,
+            'chat_type': chat_type
+        }).execute()
+        send_telegram_message(chat_id, f"✓ Запомнил: «{fact_text}» {'(личное)' if is_private else '(можно рассказывать)'}")
+        return 'OK'
+
     if text == '/start':
         send_telegram_message(chat_id,
             "Привет! Я бот с Groq и Supabase. Я помню контекст, "
@@ -278,6 +307,9 @@ def webhook():
 
         # Добавляем сообщение пользователя
         history.append({"role": "user", "content": text})
+
+        # Сохраняем копию истории ДО ответа для извлечения фактов
+        history_before_answer = history.copy()
 
         # Запускаем статус «печатает» в фоне
         typing_event = threading.Event()
@@ -305,11 +337,13 @@ def webhook():
         history = compress_history(history, keep_last=10, max_messages=30)
         save_history(chat_id, history)
 
-        # Извлечение и сохранение фактов (кроме команды /start)
-        if text and text != '/start':
+        # Извлечение и сохранение фактов с учётом контекста
+        if text and text != '/start' and not text.startswith('/fact '):
             chat_type = 'private' if chat_id > 0 else 'group'
-            facts = extract_facts_from_message(text, chat_id, chat_type)
+            facts = extract_facts_with_context(history_before_answer, text, chat_id, chat_type)
             if facts:
+                # Удаляем старые факты этого пользователя и сохраняем новые
+                supabase.table('global_facts').delete().eq('source_chat_id', chat_id).execute()
                 save_global_facts(facts, chat_id, chat_type)
 
         send_telegram_message(chat_id, answer)
