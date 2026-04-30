@@ -3,7 +3,13 @@ import requests
 from flask import Flask, request
 from supabase import create_client
 from groq import Groq
+# ... (все ваши текущие импорты, например, import requests, from flask import Flask, request и т.д.)
+# ...
+import threading
+import time
 
+# ... (здесь может быть код с app = Flask(__name__), отправкой сообщений и т.д.)
+# ...
 app = Flask(__name__)
 
 supabase = create_client(os.environ.get('SUPABASE_URL'), os.environ.get('SUPABASE_KEY'))
