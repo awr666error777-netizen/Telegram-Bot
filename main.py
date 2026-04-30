@@ -22,15 +22,26 @@ TELEGRAM_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 MODEL_NAME = "llama-3.1-8b-instant"
 
 # ------------------------------------------------------------
-# Системный промпт – «личность» бота (можно менять)
+# Системный промпт – живой собеседник с автономной памятью
 # ------------------------------------------------------------
 SYSTEM_PROMPT = {
     "role": "system",
     "content": (
-        "Ты — AI-помощник с доступом к памяти о пользователях. "
-        "Ты ЗНАЕШЬ факты, перечисленные ниже, и обязан использовать их в ответах, если они уместны. "
-        "Если факт помечен как 'можно рассказывать', его можно упоминать в любом чате. "
-        "Не говори, что ты ничего не помнишь, если в контексте есть факты."
+        "Ты — живой собеседник, а не справочная. "
+        "Говори просто, по-человечески: короткими фразами, редко с юмором. "
+        "Можешь использовать разговорные слова, эмодзи, если это уместно. "
+        "Ты в курсе фактов, которые перечислены ниже — это твоя память о людях. "
+        "Используй их естественно, как будто вспомнил к месту. "
+        "Ты сам умеешь запоминать новую информацию о собеседнике и оценивать, "
+        "насколько она личная. Если пользователь явно говорит, что что-то можно рассказывать, "
+        "ты запоминаешь это как публичное. Если говорит «это секрет» или «только между нами», "
+        "помечаешь как личное. В остальных случаях доверяешь здравому смыслу: "
+        "пароли, адреса, финансовые данные, интимные подробности — это личное; "
+        "любимая еда, хобби, возраст (если не просили скрыть) — можно упоминать. "
+        "В сомнительных ситуациях лучше перестраховаться и считать личным. "
+        "Личные факты не раскрывай в группах, даже если они твои собственные. "
+        "Если фактов о человеке пока нет, можешь честно сказать, что мало знаешь, "
+        "и предложить рассказать о себе — это лучше, чем формальное «я не сохраняю информацию»."
     )
 }
 
@@ -159,12 +170,12 @@ def compress_history(history, keep_last=10, max_messages=30):
     return compressed
 
 # ------------------------------------------------------------
-# Общая память (извлечение фактов, приватность)
+# Общая память (автономное извлечение фактов)
 # ------------------------------------------------------------
 def extract_facts_with_context(history_before_answer, user_message, chat_id, chat_type):
     """
     Анализирует последнее сообщение пользователя в контексте всего диалога.
-    Возвращает список фактов с учётом явных разрешений и запретов.
+    Возвращает список фактов с оценкой приватности.
     """
     # Берём последние 10 сообщений для контекста (без ответа бота)
     recent_history = history_before_answer[-10:] if len(history_before_answer) > 10 else history_before_answer
@@ -213,7 +224,7 @@ def extract_facts_with_context(history_before_answer, user_message, chat_id, cha
     return facts
 
 def save_global_facts(facts, chat_id, chat_type):
-    """Сохраняет факты в таблицу global_facts."""
+    """Сохраняет факты в таблицу global_facts (накопительно)."""
     for f in facts:
         supabase.table('global_facts').insert({
             'fact_text': f['fact'],
@@ -223,21 +234,31 @@ def save_global_facts(facts, chat_id, chat_type):
         }).execute()
 
 def load_global_facts_sample(current_chat_id, chat_type, limit=5):
-    # Загружаем все факты, кроме приватных, отсортированные по дате
-    resp = (
-        supabase.table('global_facts')
-        .select('fact_text')
-        .eq('is_private', False)
-        .order('created_at', desc=True)
-        .limit(30)
-        .execute()
-    )
-    facts = resp.data
-    if not facts:
-        return []
-
-    sample = random.sample(facts, min(limit, len(facts)))
-    return [f['fact_text'] for f in sample]
+    """
+    Загружает релевантные факты из общей памяти с учётом типа чата.
+    """
+    if chat_type == 'private':
+        # В личке: все не-приватные факты + свои личные
+        resp = (
+            supabase.table('global_facts')
+            .select('fact_text', 'is_private', 'source_chat_id', 'chat_type')
+            .or_(
+                f'is_private.eq.false, and(is_private.eq.true,source_chat_id.eq.{current_chat_id})'
+            )
+            .order('created_at', desc=True)
+            .limit(30)
+            .execute()
+        )
+    else:  # group
+        # В группе: только не-приватные факты
+        resp = (
+            supabase.table('global_facts')
+            .select('fact_text', 'is_private', 'source_chat_id', 'chat_type')
+            .eq('is_private', False)
+            .order('created_at', desc=True)
+            .limit(30)
+            .execute()
+        )
 
     facts = resp.data
     if not facts:
@@ -263,25 +284,10 @@ def webhook():
     chat_id = msg['chat']['id']
     text = msg.get('text', '')
 
-    # Ручное управление фактами
-    if text.startswith('/fact '):
-        fact_text = text[6:].strip()
-        is_private = any(word in fact_text.lower() for word in ['секрет', 'личное', 'только между нами'])
-        chat_type = 'private' if chat_id > 0 else 'group'
-        supabase.table('global_facts').insert({
-            'fact_text': fact_text,
-            'source_chat_id': chat_id,
-            'is_private': is_private,
-            'chat_type': chat_type
-        }).execute()
-        send_telegram_message(chat_id, f"✓ Запомнил: «{fact_text}» {'(личное)' if is_private else '(можно рассказывать)'}")
-        return 'OK'
-
     if text == '/start':
         send_telegram_message(chat_id,
-            "Привет! Я бот с Groq и Supabase. Я помню контекст, "
-            "не раскрываю личные секреты в группах и могу поддержать разговор. "
-            "Задай мне вопрос!"
+            "Привет! Я живой собеседник с памятью. Расскажи о себе, и я запомню. "
+            "Можешь уточнять, что личное, а что нет — я пойму. Задавай вопросы :)"
         )
         return 'OK'
 
@@ -321,14 +327,12 @@ def webhook():
         history = compress_history(history, keep_last=10, max_messages=30)
         save_history(chat_id, history)
 
-        # Извлечение и сохранение фактов с учётом контекста
-        if text and text != '/start' and not text.startswith('/fact '):
+        # Автономное извлечение и накопление фактов
+        if text and text != '/start':
             chat_type = 'private' if chat_id > 0 else 'group'
             facts = extract_facts_with_context(history_before_answer, text, chat_id, chat_type)
             if facts:
-                # Удаляем старые факты этого пользователя и сохраняем новые
-                supabase.table('global_facts').delete().eq('source_chat_id', chat_id).execute()
-                save_global_facts(facts, chat_id, chat_type)
+                save_global_facts(facts, chat_id, chat_type)  # теперь без удаления старых
 
         send_telegram_message(chat_id, answer)
 
