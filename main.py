@@ -28,7 +28,7 @@ SYSTEM_PROMPT = {
     "role": "system",
     "content": (
         "Ты — живой собеседник, а не справочная. "
-        "Говори просто, по-человечески: короткими фразами, редко с юмором. "
+        "Говори просто, по-человечески: короткими фразами, с юмором, иногда с улыбкой. "
         "Можешь использовать разговорные слова, эмодзи, если это уместно. "
         "Ты в курсе фактов, которые перечислены ниже — это твоя память о людях. "
         "Используй их естественно, как будто вспомнил к месту. "
@@ -283,6 +283,13 @@ def webhook():
     msg = update['message']
     chat_id = msg['chat']['id']
     text = msg.get('text', '')
+
+    # Команда полной очистки памяти
+    if text == '/clear':
+        supabase.table('users').delete().eq('chat_id', chat_id).execute()
+        supabase.table('global_facts').delete().eq('source_chat_id', chat_id).execute()
+        send_telegram_message(chat_id, "🗑️ Я всё забыл. Можем начинать с чистого листа!")
+        return 'OK'
 
     if text == '/start':
         send_telegram_message(chat_id,
