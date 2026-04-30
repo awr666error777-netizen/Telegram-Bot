@@ -225,7 +225,6 @@ def save_global_facts(facts, chat_id, chat_type):
         }).execute()
 
 def load_global_facts_sample(current_chat_id, chat_type, limit=5):
-def load_global_facts_sample(current_chat_id, chat_type, limit=5):
     if chat_type == 'private':
         resp = (
             supabase.table('global_facts')
