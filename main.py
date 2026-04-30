@@ -44,6 +44,18 @@ def webhook():
     history = load_history(chat_id)
     history.append({"role": "user", "content": text})
     
+    # Запускаем статус «печатает» и готовим ответ
+    typing_event = threading.Event()
+    def keep_typing():
+        """Функция, которая будет каждые 5 секунд обновлять статус 'печатает', пока не придет ответ."""
+        while not typing_event.is_set():
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
+            requests.post(url, json={'chat_id': chat_id, 'action': 'typing'})
+            typing_event.wait(5) # ждем 5 секунд или сигнала к завершению
+    # Запускаем keep_typing в отдельном потоке
+    threading.Thread(target=keep_typing).start()
+
+    # Здесь ваш код отправки сообщения в Groq и получения ответа
     chat_completion = groq_client.chat.completions.create(
         messages=history,
         model=MODEL_NAME,
@@ -51,6 +63,11 @@ def webhook():
         max_tokens=1024
     )
     answer = chat_completion.choices[0].message.content
+    
+    # Как только ответ получен, останавливаем статус «печатает»
+    typing_event.set()
+    # Небольшая пауза, чтобы анимация не исчезла за 0.1 секунды
+    time.sleep(1.5)
     
     history.append({"role": "assistant", "content": answer})
     if len(history) > 20:
