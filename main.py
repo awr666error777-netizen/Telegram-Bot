@@ -27,12 +27,10 @@ MODEL_NAME = "llama-3.1-8b-instant"
 SYSTEM_PROMPT = {
     "role": "system",
     "content": (
-        "Ты — дружелюбный AI-помощник с отличной памятью. "
-        "Ты запоминаешь информацию о людях, с которыми общаешься. "
-        "По умолчанию ты считаешь личную информацию конфиденциальной и не раскрываешь её в группах. "
-        "НО если пользователь явно сказал, что какой-то факт можно рассказывать другим, "
-        "ты можешь упоминать его даже в групповых чатах. "
-        "В сомнительных случаях лучше переспросить пользователя, можно ли поделиться информацией."
+        "Ты — AI-помощник с доступом к памяти о пользователях. "
+        "Ты ЗНАЕШЬ факты, перечисленные ниже, и обязан использовать их в ответах, если они уместны. "
+        "Если факт помечен как 'можно рассказывать', его можно упоминать в любом чате. "
+        "Не говори, что ты ничего не помнишь, если в контексте есть факты."
     )
 }
 
@@ -225,26 +223,21 @@ def save_global_facts(facts, chat_id, chat_type):
         }).execute()
 
 def load_global_facts_sample(current_chat_id, chat_type, limit=5):
-    if chat_type == 'private':
-        resp = (
-            supabase.table('global_facts')
-            .select('fact_text', 'is_private', 'source_chat_id', 'chat_type')
-            .or_(
-                f'is_private.eq.false, and(is_private.eq.true,source_chat_id.eq.{current_chat_id})'
-            )
-            .order('created_at', desc=True)
-            .limit(30)
-            .execute()
-        )
-    else:  # group
-        resp = (
-            supabase.table('global_facts')
-            .select('fact_text', 'is_private', 'source_chat_id', 'chat_type')
-            .eq('is_private', False)
-            .order('created_at', desc=True)
-            .limit(30)
-            .execute()
-        )
+    # Загружаем все факты, кроме приватных, отсортированные по дате
+    resp = (
+        supabase.table('global_facts')
+        .select('fact_text')
+        .eq('is_private', False)
+        .order('created_at', desc=True)
+        .limit(30)
+        .execute()
+    )
+    facts = resp.data
+    if not facts:
+        return []
+
+    sample = random.sample(facts, min(limit, len(facts)))
+    return [f['fact_text'] for f in sample]
 
     facts = resp.data
     if not facts:
