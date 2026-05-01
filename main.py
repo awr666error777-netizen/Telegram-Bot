@@ -348,6 +348,8 @@ def webhook():
                 typing_event.wait(5)
         threading.Thread(target=keep_typing).start()
 
+        import re
+
         # Отправляем запрос в Groq
         chat_completion = groq_client.chat.completions.create(
             messages=history,
@@ -355,7 +357,13 @@ def webhook():
             temperature=0.7,
             max_tokens=1024
         )
-        answer = chat_completion.choices[0].message.content
+        raw_answer = chat_completion.choices[0].message.content
+        
+        # --- Фильтр для удаления тегов <think> ... </think> ---
+        # Удаляем всё, что находится между тегами
+        clean_answer = re.sub(r'<think>.*?</think>', '', raw_answer, flags=re.DOTALL).strip()
+        # Если после очистки ничего не осталось (на всякий случай), берём исходный ответ
+        answer = clean_answer if clean_answer else raw_answer
         typing_event.set()
         time.sleep(1.5)  # даём анимации проиграться
 
