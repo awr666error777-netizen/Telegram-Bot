@@ -320,10 +320,17 @@ def webhook():
     text = msg.get('text', '')
 
     # Команда полной очистки памяти
-    if text == '/clear':
+        if text == '/clear':
+        # 1. Удаляем историю диалога
         supabase.table('users').delete().eq('chat_id', chat_id).execute()
+        # 2. Удаляем все факты, привязанные к этому чату
         supabase.table('global_facts').delete().eq('source_chat_id', chat_id).execute()
-        send_telegram_message(chat_id, "🗑️ Я всё забыл. Можем начинать с чистого листа!")
+        # 3. Удаляем примеры стиля для этого чата (если таблица существует)
+        try:
+            supabase.table('style_examples').delete().eq('chat_id', chat_id).execute()
+        except Exception:
+            pass  # таблицы может не быть
+        send_telegram_message(chat_id, "🗑️ Всё забыто. Начинаем с чистого листа!")
         return 'OK'
 
     if text == '/start':
