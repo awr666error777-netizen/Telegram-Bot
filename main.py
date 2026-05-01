@@ -19,7 +19,7 @@ groq_client = Groq(api_key=os.environ.get('GROQ_API_KEY'))
 
 # Токен Telegram и модель Groq
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-MODEL_NAME = "llama-3.1-8b-instant"
+MODEL_NAME = "qwen/qwen3-32b"
 
 # ------------------------------------------------------------
 # Системный промпт – живой собеседник с автономной памятью
