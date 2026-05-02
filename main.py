@@ -319,8 +319,8 @@ def webhook():
     chat_id = msg['chat']['id']
     text = msg.get('text', '')
 
-    # Команда полной очистки памяти
-        if text == '/clear':
+        # Команда полной очистки памяти
+    if text == '/clear':
         # 1. Удаляем историю диалога
         supabase.table('users').delete().eq('chat_id', chat_id).execute()
         # 2. Удаляем все факты, привязанные к этому чату
@@ -329,7 +329,7 @@ def webhook():
         try:
             supabase.table('style_examples').delete().eq('chat_id', chat_id).execute()
         except Exception:
-            pass  # таблицы может не быть
+            pass
         send_telegram_message(chat_id, "🗑️ Всё забыто. Начинаем с чистого листа!")
         return 'OK'
 
