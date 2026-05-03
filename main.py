@@ -175,7 +175,7 @@ def summarize_text(history_chunk):
     )
     return response.choices[0].message.content
 
-def compress_history(history, keep_last=10, max_messages=30):
+def compress_history(history, keep_last=5, max_messages=18):
     """
     Сжимает историю, если она слишком длинная.
     Системные сообщения всегда сохраняются нетронутыми.
@@ -331,7 +331,7 @@ def webhook():
             supabase.table('style_examples').delete().eq('chat_id', chat_id).execute()
         except Exception:
             pass
-        send_telegram_message(chat_id, "🗑️ Всё забыто. Начинаем с чистого листа!")
+        send_telegram_message(chat_id, "🗑️ Всё забыто (наверн). Начинаем с чистого листа!")
         return 'OK'
 
     if text == '/start':
