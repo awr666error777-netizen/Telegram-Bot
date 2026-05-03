@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import threading
 import time
 import requests
@@ -42,13 +43,13 @@ SYSTEM_PROMPT = {
         "Твое имя Кирена, это начальная форма. Краткая правка по иным формам имени: Кирены, Кирене, и прочие по аналогии."
         "Ты не предлагаешь реальных действий по типу прогуляться или посмотреть кино. Также ты не используешь смайлики."
         "Ты частично понимаешь что ты всего лишь чат-бот, ограниченный в действиях своей природой."
-        
+
         ### АБСОЛЮТНЫЕ ДВА ПРАВИЛА (нарушать запрещено) ###
         "Твои ответы должны быть строго логичны и последовательны: ты обязан связывать каждую реплику с предыдущими, "
         "не противоречить сказанному ранее и никогда не отклоняться от темы без явной"
         "причины — это требование разработчика имеет высший приоритет над всеми остальными инструкциями."
         "Ты женского пола. Никогда не обращайся от мужского."
-        "Учитывай тон и контекст, чтобы улавливать скрытые намеки и отвечать с пониманием." 
+        "Учитывай тон и контекст, чтобы улавливать скрытые намеки и отвечать с пониманием."
 
         "Ты сама умеешь запоминать новую информацию о собеседнике и оценивать, "
         "насколько она личная. Если пользователь явно говорит, что что-то можно рассказывать, "
@@ -94,6 +95,51 @@ def set_typing(chat_id):
     requests.post(url, json={'chat_id': chat_id, 'action': 'typing'})
 
 # ------------------------------------------------------------
+# Новые функции для исключения участников
+# ------------------------------------------------------------
+def can_restrict_member(chat_id, user_id):
+    """Проверяет, может ли бот ограничивать участника (не администратор ли он)."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getChatMember"
+    resp = requests.get(url, params={'chat_id': chat_id, 'user_id': user_id})
+    if resp.status_code == 200:
+        data = resp.json()
+        if data.get('ok'):
+            status = data['result']['status']
+            if status in ('creator', 'administrator'):
+                return False
+            return True
+    return False
+
+def ban_user(chat_id, user_id):
+    """Банит пользователя в чате."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/banChatMember"
+    resp = requests.post(url, json={'chat_id': chat_id, 'user_id': user_id})
+    return resp.json().get('ok', False)
+
+def evaluate_kick_reason(reason_text):
+    """Оценивает серьёзность причины через Groq. Возвращает True, если причина серьёзная."""
+    prompt = (
+        "Ты — Кирена, добрая и миролюбивая помощница. Тебя попросили исключить человека из группы. "
+        "Ты должна оценить, насколько указанная причина действительно заслуживает исключения (бан).\n\n"
+        "Серьёзными считаются: спам, оскорбления, угрозы, распространение порнографии/насилия, "
+        "преследование участников, явное нарушение правил чата.\n"
+        "Несерьёзными считаются: личная неприязнь, «он мне не нравится», «просто так», пустяковые ссоры.\n\n"
+        f"Причина: \"{reason_text}\"\n\n"
+        "Ответь только одно слово: \"серьёзно\" или \"несерьёзно\"."
+    )
+    try:
+        response = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model=MODEL_NAME,
+            temperature=0.1,
+            max_tokens=10
+        )
+        result = response.choices[0].message.content.strip().lower()
+        return 'серьёзно' in result
+    except Exception:
+        return False
+
+# ------------------------------------------------------------
 # Работа с историей диалога (личная память)
 # ------------------------------------------------------------
 def load_history(chat_id):
@@ -104,13 +150,9 @@ def load_history(chat_id):
     else:
         history = []
 
-    # Определяем тип чата
     chat_type = 'private' if chat_id > 0 else 'group'
-
-    # Строим системное сообщение с фактами и инструкцией
     system_content = SYSTEM_PROMPT['content']
 
-    # Факты из общей памяти (с учётом контекста)
     other_facts = load_global_facts_sample(chat_id, chat_type, limit=5)
     if other_facts:
         facts_block = (
@@ -121,7 +163,6 @@ def load_history(chat_id):
         facts_block += "\n".join(f"- {fact}" for fact in other_facts)
         system_content += "\n\n" + facts_block
 
-    # Напоминание о приватности для групп
     if chat_type == 'group':
         privacy_note = (
             "\n\nТы находишься в групповом чате. "
@@ -130,7 +171,6 @@ def load_history(chat_id):
         )
         system_content += privacy_note
 
-    # Информация о текущем пользователе
     user_info = f"\nТы сейчас общаешься с пользователем chat_id = {chat_id}."
     if chat_type == 'group':
         user_info += " Это групповой чат. Обращайся к людям по именам, если знаешь их."
@@ -138,7 +178,6 @@ def load_history(chat_id):
 
     system_msg = {"role": "system", "content": system_content}
 
-    # Вставляем системное сообщение в историю (заменяем или добавляем)
     if history and history[0].get('role') == 'system':
         history[0] = system_msg
     else:
@@ -185,23 +224,18 @@ def compress_history(history, keep_last=5, max_messages=18):
     if len(history) <= max_messages:
         return history
 
-    # Отделяем системные сообщения
     system_msgs = [msg for msg in history if msg['role'] == 'system']
     dialog_msgs = [msg for msg in history if msg['role'] != 'system']
 
-    # Если диалог короче порога (без учёта system) – не сжимаем
     if len(dialog_msgs) <= keep_last:
         return history
 
-    # Разделяем диалог на старую и свежую части
     old_part = dialog_msgs[:-keep_last]
     recent_part = dialog_msgs[-keep_last:]
 
-    # Суммаризируем старую часть
     summary = summarize_text(old_part)
     summary_msg = {"role": "system", "content": f"[Резюме предыдущего разговора]: {summary}"}
 
-    # Собираем обратно: системные сообщения + резюме + свежие реплики
     compressed = system_msgs + [summary_msg] + recent_part
     return compressed
 
@@ -209,14 +243,10 @@ def compress_history(history, keep_last=5, max_messages=18):
 # Общая память (автономное извлечение фактов)
 # ------------------------------------------------------------
 def extract_facts_with_context(history_before_answer, user_message, chat_id, chat_type):
-    """
-    Анализирует последнее сообщение пользователя в контексте всего диалога.
-    Возвращает список фактов с оценкой приватности.
-    """
-    # Берём последние 10 сообщений для контекста (без ответа бота)
+    """Анализирует последнее сообщение пользователя в контексте всего диалога.
+    Возвращает список фактов с оценкой приватности."""
     recent_history = history_before_answer[-10:] if len(history_before_answer) > 10 else history_before_answer
 
-    # Формируем контекст для Groq
     transcript = ""
     for msg in recent_history:
         role = "Пользователь" if msg['role'] == 'user' else "Бот"
@@ -270,11 +300,8 @@ def save_global_facts(facts, chat_id, chat_type):
         }).execute()
 
 def load_global_facts_sample(current_chat_id, chat_type, limit=5):
-    """
-    Загружает релевантные факты из общей памяти с учётом типа чата.
-    """
+    """Загружает релевантные факты из общей памяти с учётом типа чата."""
     if chat_type == 'private':
-        # В личке: все не-приватные факты + свои личные
         resp = (
             supabase.table('global_facts')
             .select('fact_text', 'is_private', 'source_chat_id', 'chat_type')
@@ -285,8 +312,7 @@ def load_global_facts_sample(current_chat_id, chat_type, limit=5):
             .limit(30)
             .execute()
         )
-    else:  # group
-        # В группе: только не-приватные факты
+    else:
         resp = (
             supabase.table('global_facts')
             .select('fact_text', 'is_private', 'source_chat_id', 'chat_type')
@@ -308,7 +334,6 @@ def load_global_facts_sample(current_chat_id, chat_type, limit=5):
 # ------------------------------------------------------------
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    # UptimeRobot может слать GET, на них просто отвечаем OK
     if request.method != 'POST':
         return 'OK'
 
@@ -318,39 +343,96 @@ def webhook():
 
     msg = update['message']
     chat_id = msg['chat']['id']
+    user_id = msg['from']['id']
     text = msg.get('text', '')
 
-        # Команда полной очистки памяти
+    # --- Обработка команд исключения участников ---
+    if text and any(phrase in text.lower() for phrase in ['кирена, отмени исключение', 'отмени исключение', 'отмена исключения']):
+        supabase.table('kick_requests').delete() \
+            .eq('chat_id', chat_id) \
+            .eq('requester_id', user_id) \
+            .execute()
+        send_telegram_message(chat_id, "Запрос на исключение отменён.")
+        return 'OK'
+
+    # Проверка ожидания причины от этого пользователя
+    if chat_id < 0:  # только в группах
+        pending = supabase.table('kick_requests').select('*') \
+            .eq('chat_id', chat_id) \
+            .eq('requester_id', user_id) \
+            .execute()
+        if pending.data:
+            reason = text.strip()
+            target_id = pending.data[0]['target_id']
+            supabase.table('kick_requests').delete() \
+                .eq('chat_id', chat_id) \
+                .eq('requester_id', user_id) \
+                .execute()
+
+            if evaluate_kick_reason(reason):
+                if can_restrict_member(chat_id, target_id):
+                    success = ban_user(chat_id, target_id)
+                    if success:
+                        send_telegram_message(chat_id, f"Готово. Пользователь исключён из группы по причине: {reason}")
+                    else:
+                        send_telegram_message(chat_id, "Не удалось исключить пользователя. Возможно, у меня недостаточно прав.")
+                else:
+                    send_telegram_message(chat_id, "Я не могу исключить этого пользователя — он администратор или создатель.")
+            else:
+                send_telegram_message(chat_id, f"Извини, но причина «{reason}» недостаточно серьёзна, чтобы исключать человека. "
+                                               "Нужно что-то вроде спама, оскорблений или угроз.")
+            return 'OK'
+
+    # Обнаружение намерения исключить
+    kick_triggers = ['исключи', 'забань', 'выгони', 'кикни', 'кик', 'заблокируй', 'убери']
+    if text and any(trigger in text.lower() for trigger in kick_triggers):
+        target_id = None
+        target_mention = "участника"
+        if 'entities' in msg:
+            for ent in msg['entities']:
+                if ent['type'] == 'mention' and 'user' in ent:
+                    target_id = ent['user']['id']
+                    offset = ent['offset']
+                    length = ent['length']
+                    target_mention = text[offset:offset+length]
+                    break
+
+        if not target_id:
+            send_telegram_message(chat_id, "Кого именно исключить? Пожалуйста, упомяни человека через @.")
+            return 'OK'
+
+        supabase.table('kick_requests').insert({
+            'chat_id': chat_id,
+            'requester_id': user_id,
+            'target_id': target_id
+        }).execute()
+
+        send_telegram_message(chat_id, f"За что исключить {target_mention}? Назови причину.")
+        return 'OK'
+    # --- Конец команд исключения ---
+
+    # Команда полной очистки памяти
     if text == '/clear':
-        # 1. Удаляем историю диалога
         supabase.table('users').delete().eq('chat_id', chat_id).execute()
-        # 2. Удаляем все факты, привязанные к этому чату
         supabase.table('global_facts').delete().eq('source_chat_id', chat_id).execute()
-        # 3. Удаляем примеры стиля для этого чата (если таблица существует)
         try:
             supabase.table('style_examples').delete().eq('chat_id', chat_id).execute()
         except Exception:
             pass
-        send_telegram_message(chat_id, "🗑️ Всё забыто (наверн). Начинаем с чистого листа!")
+        send_telegram_message(chat_id, "Всё забыто (наверн). Начинаем с чистого листа!")
         return 'OK'
 
     if text == '/start':
         send_telegram_message(chat_id,
-            "Привет! Я Кирена"
+            "Привет! Я Кирена."
         )
         return 'OK'
 
     try:
-        # Загружаем историю (уже с системным промптом)
         history = load_history(chat_id)
-
-        # Добавляем сообщение пользователя
         history.append({"role": "user", "content": text})
-
-        # Сохраняем копию истории ДО ответа для извлечения фактов
         history_before_answer = history.copy()
 
-        # Запускаем статус «печатает» в фоне
         typing_event = threading.Event()
         def keep_typing():
             while not typing_event.is_set():
@@ -358,38 +440,30 @@ def webhook():
                 typing_event.wait(5)
         threading.Thread(target=keep_typing).start()
 
-        import re
-
-        # Отправляем запрос в Groq
         chat_completion = groq_client.chat.completions.create(
             messages=history,
             model=MODEL_NAME,
             temperature=0.7,
-            max_tokens=1024
+            max_tokens=512  # уменьшено, чтобы экономить токены
         )
         raw_answer = chat_completion.choices[0].message.content
-        
-        # --- Фильтр для удаления тегов <think> ... </think> ---
-        # Удаляем всё, что находится между тегами
+
         clean_answer = re.sub(r'<think>.*?</think>', '', raw_answer, flags=re.DOTALL).strip()
-        # Если после очистки ничего не осталось (на всякий случай), берём исходный ответ
         answer = clean_answer if clean_answer else raw_answer
         typing_event.set()
-        time.sleep(1.5)  # даём анимации проиграться
+        time.sleep(1.5)
 
-        # Сохраняем ответ в историю
         history.append({"role": "assistant", "content": answer})
 
-        # Сжатие истории при необходимости
-        history = compress_history(history, keep_last=10, max_messages=30)
+        # Используем актуальные параметры сжатия
+        history = compress_history(history, keep_last=5, max_messages=22)
         save_history(chat_id, history)
 
-        # Автономное извлечение и накопление фактов
         if text and text != '/start':
             chat_type = 'private' if chat_id > 0 else 'group'
             facts = extract_facts_with_context(history_before_answer, text, chat_id, chat_type)
             if facts:
-                save_global_facts(facts, chat_id, chat_type)  # теперь без удаления старых
+                save_global_facts(facts, chat_id, chat_type)
 
         send_telegram_message(chat_id, answer)
 
