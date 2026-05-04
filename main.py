@@ -474,12 +474,12 @@ def webhook():
             return 'OK'
         processing_chats.add(lock_key)
 
-    try:
+        try:
         history = load_history(chat_id)
         history.append({"role": "user", "content": text})
         history_before_answer = history.copy()
 
-                # Запускаем статус «печатает» в фоне
+        # Запускаем статус «печатает» в фоне
         typing_event = threading.Event()
         def keep_typing():
             while not typing_event.is_set():
@@ -492,44 +492,31 @@ def webhook():
             messages=history,
             model=MODEL_NAME,
             temperature=0.7,
-            max_tokens=1024
+            max_tokens=512   # можно оставить 1024, если хотите
         )
         raw_answer = chat_completion.choices[0].message.content
-        
-                # --- Сверхнадежный фильтр для удаления любых мыслей ---
-        raw_answer = chat_completion.choices[0].message.content
 
-        # 1. Пытаемся удалить всё, что находится между <think> и </think>, с нежадным захватом
-        pattern = r'<think[^>]*>.*?</think>'
-        clean_answer = re.sub(pattern, '', raw_answer, flags=re.DOTALL | re.IGNORECASE)
-
-        # 2. Если остался открывающий тег без закрывающего, удаляем всё от него до конца строки
-        pattern_open = r'<think[^>]*>.*$'
-        clean_answer = re.sub(pattern_open, '', clean_answer, flags=re.DOTALL | re.IGNORECASE)
-
-        # 3. Удаляем висящие закрывающие теги
-        pattern_close = r'</think[^>]*>'
-        clean_answer = re.sub(pattern_close, '', clean_answer, flags=re.IGNORECASE)
-
-        # 4. Удаляем возможные "пустые" теги с пробелами внутри
-        pattern_space = r'<\s*think\s*>|<\s*/\s*think\s*>'
-        clean_answer = re.sub(pattern_space, '', clean_answer, flags=re.IGNORECASE)
-
-        # 5. Убираем лишние пробелы и пустые строки
+        # --- Сверхнадежный фильтр для удаления любых мыслей ---
+        pattern1 = r'<think[^>]*>.*?</think>'
+        clean_answer = re.sub(pattern1, '', raw_answer, flags=re.DOTALL | re.IGNORECASE)
+        pattern2 = r'<think[^>]*>.*$'
+        clean_answer = re.sub(pattern2, '', clean_answer, flags=re.DOTALL | re.IGNORECASE)
+        pattern3 = r'</think[^>]*>'
+        clean_answer = re.sub(pattern3, '', clean_answer, flags=re.IGNORECASE)
+        pattern4 = r'<\s*think\s*>|<\s*/\s*think\s*>'
+        clean_answer = re.sub(pattern4, '', clean_answer, flags=re.IGNORECASE)
         answer = '\n'.join(line for line in clean_answer.split('\n') if line.strip())
         answer = answer.strip()
-
-        # Если после чистки ничего не осталось, показываем исходный ответ (на случай ложного срабатывания)
         if not answer:
             answer = raw_answer.strip()
-        # --- Конец сверхнадежного фильтра ---
+        # --- Конец фильтра ---
 
         typing_event.set()
         time.sleep(1.5)
 
-                history.append({"role": "assistant", "content": answer})
+        history.append({"role": "assistant", "content": answer})
 
-        history = compress_history(history, keep_last=5, max_messages=22)  # вернул на 22, если хотели 10 – оставьте 10
+        history = compress_history(history, keep_last=5, max_messages=22)
         save_history(chat_id, history)
 
         if text and text != '/start':
