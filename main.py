@@ -449,8 +449,7 @@ def webhook():
         )
         return 'OK'
 
-            # --- Умная защита от двойных сообщений ---
-    # Блокируем не всех в чате, а только конкретного пользователя
+                # --- Умная защита от двойных сообщений ---
     lock_key = (chat_id, user_id)
 
     with processing_lock:
@@ -474,10 +473,10 @@ def webhook():
             return 'OK'
         processing_chats.add(lock_key)
 
-        try:
-            history = load_history(chat_id)
-            history.append({"role": "user", "content": text})
-            history_before_answer = history.copy()
+    try:
+        history = load_history(chat_id)
+        history.append({"role": "user", "content": text})
+        history_before_answer = history.copy()
 
         # Запускаем статус «печатает» в фоне
         typing_event = threading.Event()
@@ -492,7 +491,7 @@ def webhook():
             messages=history,
             model=MODEL_NAME,
             temperature=0.7,
-            max_tokens=512   # можно оставить 1024, если хотите
+            max_tokens=1024
         )
         raw_answer = chat_completion.choices[0].message.content
 
