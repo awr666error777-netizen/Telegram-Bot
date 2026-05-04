@@ -476,6 +476,7 @@ def webhook():
         history.append({"role": "user", "content": text})
         history_before_answer = history.copy()
 
+                # Запускаем статус «печатает» в фоне
         typing_event = threading.Event()
         def keep_typing():
             while not typing_event.is_set():
@@ -483,11 +484,14 @@ def webhook():
                 typing_event.wait(5)
         threading.Thread(target=keep_typing).start()
 
-                chat_completion = groq_client.chat.completions.create(
+        # Отправляем запрос в Groq
+        chat_completion = groq_client.chat.completions.create(
             messages=history,
             model=MODEL_NAME,
             temperature=0.7,
             max_tokens=1024
+        )
+        raw_answer = chat_completion.choices[0].message.content
         )
                 # --- Сверхнадежный фильтр для удаления любых мыслей ---
         raw_answer = chat_completion.choices[0].message.content
