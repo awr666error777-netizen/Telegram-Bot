@@ -492,7 +492,7 @@ def webhook():
             max_tokens=1024
         )
         raw_answer = chat_completion.choices[0].message.content
-        )
+        
                 # --- Сверхнадежный фильтр для удаления любых мыслей ---
         raw_answer = chat_completion.choices[0].message.content
 
