@@ -449,9 +449,12 @@ def webhook():
         )
         return 'OK'
 
-        # --- Защита от двойных сообщений ---
+            # --- Умная защита от двойных сообщений ---
+    # Блокируем не всех в чате, а только конкретного пользователя
+    lock_key = (chat_id, user_id)
+
     with processing_lock:
-        if chat_id in processing_chats:
+        if lock_key in processing_chats:
             # Пытаемся удалить "лишнее" сообщение
             delete_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage"
             msg_id_to_delete = msg['message_id']
@@ -460,7 +463,7 @@ def webhook():
                 'message_id': msg_id_to_delete
             })
             if not resp.json().get('ok'):
-                # Если удалить не удалось (например, в личке), шлём предупреждение и удаляем его через 5 секунд
+                # Если удалить не удалось (например, в личке), шлём предупреждение и удаляем его через 3 секунды
                 warn_msg = send_telegram_message_return(chat_id, "Кирена пока занята ответом на предыдущее сообщение. Подожди немного, хорошо?")
                 if warn_msg:
                     time.sleep(3)
@@ -469,7 +472,7 @@ def webhook():
                         'message_id': warn_msg['message_id']
                     })
             return 'OK'
-        processing_chats.add(chat_id)
+        processing_chats.add(lock_key)
 
     try:
         history = load_history(chat_id)
@@ -543,9 +546,9 @@ def webhook():
             send_telegram_message(chat_id, error_msg)
         except:
             pass
-    finally:
+        finally:
         with processing_lock:
-            processing_chats.discard(chat_id)
+            processing_chats.discard(lock_key)
 
     return 'OK'
 
