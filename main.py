@@ -460,16 +460,34 @@ def webhook():
                 typing_event.wait(5)
         threading.Thread(target=keep_typing).start()
 
-        chat_completion = groq_client.chat.completions.create(
+                chat_completion = groq_client.chat.completions.create(
             messages=history,
             model=MODEL_NAME,
             temperature=0.7,
-            max_tokens=512
+            max_tokens=1024
         )
         raw_answer = chat_completion.choices[0].message.content
 
-        clean_answer = re.sub(r'<think>.*?</think>', '', raw_answer, flags=re.DOTALL).strip()
-        answer = clean_answer if clean_answer else raw_answer
+        # --- Улучшенный фильтр для удаления мыслей модели ---
+        # 1. Удаляем всё, что находится между тегами <think> и </think>, даже с переносами строк
+        think_pattern1 = r'<think>.*?</think>'
+        clean_answer = re.sub(think_pattern1, '', raw_answer, flags=re.DOTALL | re.IGNORECASE)
+
+        # 2. На случай, если модель забыла закрыть тег, удаляем всё, начиная с <think> и до конца сообщения
+        think_pattern2 = r'<think>.*$'
+        clean_answer = re.sub(think_pattern2, '', clean_answer, flags=re.DOTALL | re.IGNORECASE)
+
+        # 3. Удаляем любые «болтающиеся» закрывающие теги </think>, которые могли остаться без пары
+        clean_answer = re.sub(r'</think>', '', clean_answer, flags=re.IGNORECASE)
+
+        # 4. Очищаем от пустых строк в начале и в конце, которые могли образоваться
+        answer = clean_answer.strip()
+        
+        # Если после всей чистки ничего не осталось, на крайний случай берем исходный ответ
+        if not answer:
+            answer = raw_answer.strip()
+        # --- Конец фильтра ---
+
         typing_event.set()
         time.sleep(1.5)
 
