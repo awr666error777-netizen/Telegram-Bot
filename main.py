@@ -102,6 +102,14 @@ def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, json={'chat_id': chat_id, 'text': text})
 
+def send_telegram_message_return(chat_id, text):
+    """Отправляет сообщение и возвращает ответ API (с message_id)."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    resp = requests.post(url, json={'chat_id': chat_id, 'text': text}).json()
+    if resp.get('ok'):
+        return resp['result']
+    return None
+
 def set_typing(chat_id):
     """Показывает статус 'печатает' в чате (вызывается в фоне)."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
@@ -441,10 +449,25 @@ def webhook():
         )
         return 'OK'
 
-    # --- Защита от двойных сообщений ---
+        # --- Защита от двойных сообщений ---
     with processing_lock:
         if chat_id in processing_chats:
-            send_telegram_message(chat_id, "Кирена пока занята ответом на предыдущее сообщение. Подожди немного, хорошо?")
+            # Пытаемся удалить "лишнее" сообщение
+            delete_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage"
+            msg_id_to_delete = msg['message_id']
+            resp = requests.post(delete_url, json={
+                'chat_id': chat_id,
+                'message_id': msg_id_to_delete
+            })
+            if not resp.json().get('ok'):
+                # Если удалить не удалось (например, в личке), шлём предупреждение и удаляем его через 5 секунд
+                warn_msg = send_telegram_message_return(chat_id, "Кирена пока занята ответом на предыдущее сообщение. Подожди немного, хорошо?")
+                if warn_msg:
+                    time.sleep(3)
+                    requests.post(delete_url, json={
+                        'chat_id': chat_id,
+                        'message_id': warn_msg['message_id']
+                    })
             return 'OK'
         processing_chats.add(chat_id)
 
@@ -466,27 +489,33 @@ def webhook():
             temperature=0.7,
             max_tokens=1024
         )
+                # --- Сверхнадежный фильтр для удаления любых мыслей ---
         raw_answer = chat_completion.choices[0].message.content
 
-        # --- Улучшенный фильтр для удаления мыслей модели ---
-        # 1. Удаляем всё, что находится между тегами <think> и </think>, даже с переносами строк
-        think_pattern1 = r'<think>.*?</think>'
-        clean_answer = re.sub(think_pattern1, '', raw_answer, flags=re.DOTALL | re.IGNORECASE)
+        # 1. Пытаемся удалить всё, что находится между <think> и </think>, с нежадным захватом
+        pattern = r'<think[^>]*>.*?</think>'
+        clean_answer = re.sub(pattern, '', raw_answer, flags=re.DOTALL | re.IGNORECASE)
 
-        # 2. На случай, если модель забыла закрыть тег, удаляем всё, начиная с <think> и до конца сообщения
-        think_pattern2 = r'<think>.*$'
-        clean_answer = re.sub(think_pattern2, '', clean_answer, flags=re.DOTALL | re.IGNORECASE)
+        # 2. Если остался открывающий тег без закрывающего, удаляем всё от него до конца строки
+        pattern_open = r'<think[^>]*>.*$'
+        clean_answer = re.sub(pattern_open, '', clean_answer, flags=re.DOTALL | re.IGNORECASE)
 
-        # 3. Удаляем любые «болтающиеся» закрывающие теги </think>, которые могли остаться без пары
-        clean_answer = re.sub(r'</think>', '', clean_answer, flags=re.IGNORECASE)
+        # 3. Удаляем висящие закрывающие теги
+        pattern_close = r'</think[^>]*>'
+        clean_answer = re.sub(pattern_close, '', clean_answer, flags=re.IGNORECASE)
 
-        # 4. Очищаем от пустых строк в начале и в конце, которые могли образоваться
-        answer = clean_answer.strip()
-        
-        # Если после всей чистки ничего не осталось, на крайний случай берем исходный ответ
+        # 4. Удаляем возможные "пустые" теги с пробелами внутри
+        pattern_space = r'<\s*think\s*>|<\s*/\s*think\s*>'
+        clean_answer = re.sub(pattern_space, '', clean_answer, flags=re.IGNORECASE)
+
+        # 5. Убираем лишние пробелы и пустые строки
+        answer = '\n'.join(line for line in clean_answer.split('\n') if line.strip())
+        answer = answer.strip()
+
+        # Если после чистки ничего не осталось, показываем исходный ответ (на случай ложного срабатывания)
         if not answer:
             answer = raw_answer.strip()
-        # --- Конец фильтра ---
+        # --- Конец сверхнадежного фильтра ---
 
         typing_event.set()
         time.sleep(1.5)
