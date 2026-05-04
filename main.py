@@ -527,9 +527,9 @@ def webhook():
         typing_event.set()
         time.sleep(1.5)
 
-        history.append({"role": "assistant", "content": answer})
+                history.append({"role": "assistant", "content": answer})
 
-        history = compress_history(history, keep_last=5, max_messages=22)
+        history = compress_history(history, keep_last=5, max_messages=22)  # вернул на 22, если хотели 10 – оставьте 10
         save_history(chat_id, history)
 
         if text and text != '/start':
@@ -546,7 +546,7 @@ def webhook():
             send_telegram_message(chat_id, error_msg)
         except:
             pass
-        finally:
+    finally:
         with processing_lock:
             processing_chats.discard(lock_key)
 
