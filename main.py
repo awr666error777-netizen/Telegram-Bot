@@ -475,9 +475,9 @@ def webhook():
         processing_chats.add(lock_key)
 
         try:
-        history = load_history(chat_id)
-        history.append({"role": "user", "content": text})
-        history_before_answer = history.copy()
+            history = load_history(chat_id)
+            history.append({"role": "user", "content": text})
+            history_before_answer = history.copy()
 
         # Запускаем статус «печатает» в фоне
         typing_event = threading.Event()
