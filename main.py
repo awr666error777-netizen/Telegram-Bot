@@ -511,7 +511,7 @@ def webhook():
         # --- Конец фильтра ---
 
         typing_event.set()
-        time.sleep(1.5)
+        typing_thread.join(timeout=1) 
 
         history.append({"role": "assistant", "content": answer})
 
