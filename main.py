@@ -510,9 +510,8 @@ def webhook():
                 processing_chats.discard(lock_key)
             return 'OK'
     # --- Конец обработки Википедии ---
-
-        # --- Обработка запросов на редактирование кода (GitHub) ---
-    if text and '[EDIT:' in text:
+        
+        if text and '[EDIT:' in text:
         authorized_user = int(os.environ.get('AUTHORIZED_USER_ID', 0))
         if user_id != authorized_user:
             send_telegram_message(chat_id, "⛔ Извини, но редактировать код могу только по запросу моего создателя.")
@@ -520,7 +519,6 @@ def webhook():
                 processing_chats.discard(lock_key)
             return 'OK'
         
-        # Извлекаем параметры из команды
         start = text.find('[EDIT:') + 6
         end = text.find(']', start)
         if end != -1:
@@ -530,21 +528,9 @@ def webhook():
                 commit_msg = params[1].strip()
                 new_content = params[2].strip()
                 
-                # Здесь вызов вашей функции для GitHub (edit_file_in_github)
-                # result = edit_file_in_github(repo_name, file_path, new_content, commit_msg)
-                # send_telegram_message(chat_id, result)
-                
-                # Пока заглушка для теста:
-                            if len(params) >= 3:
-                file_path = params[0].strip()
-                commit_msg = params[1].strip()
-                new_content = params[2].strip()
-                
-                # --- Реальный вызов функции ---
-                repo_name = "Telegram-Bot"  # Например: "my-telegram-bot"
+                repo_name = "Telegram-Bot"
                 result = edit_file_in_github(repo_name, file_path, new_content, commit_msg)
                 send_telegram_message(chat_id, result)
-                # --- Конец реального вызова ---
             else:
                 send_telegram_message(chat_id, "Формат: `[EDIT: путь_к_файлу | комментарий | содержимое]`")
         else:
@@ -553,7 +539,6 @@ def webhook():
         with processing_lock:
             processing_chats.discard(lock_key)
         return 'OK'
-    # --- Конец обработки редактирования ---
 
     try:
         history = load_history(chat_id)
