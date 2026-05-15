@@ -511,7 +511,7 @@ def webhook():
             return 'OK'
     # --- Конец обработки Википедии ---
         
-        if text and '[EDIT:' in text:
+    if text and '[EDIT:' in text:
         authorized_user = int(os.environ.get('AUTHORIZED_USER_ID', 0))
         if user_id != authorized_user:
             send_telegram_message(chat_id, "⛔ Извини, но редактировать код могу только по запросу моего создателя.")
