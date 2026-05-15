@@ -4,6 +4,7 @@ import re
 import threading
 import time
 import requests
+import wikipediaapi
 from flask import Flask, request
 from supabase import create_client
 from groq import Groq
@@ -91,6 +92,15 @@ SYSTEM_PROMPT = {
         "я обязательно это учту и использую в разговоре, когда это уместно. "
         "Но я никогда не говорю «я вспомнил факт из базы» — я просто использую эту информацию, "
         "как обычный человек с хорошей памятью."
+        
+                # --- НОВЫЕ ИНСТРУКЦИИ ДЛЯ РАБОТЫ С ВИКИПЕДИЕЙ ---
+        "\n\nУ тебя есть доступ к Википедии, чтобы проверять факты и получать информацию:\n"
+        "6. Если пользователь спрашивает о чём-то фактологическом (даты, события, известные личности, научные факты), "
+        "ты должна САМА, БЕЗ КОМАНД, использовать функцию поиска по Википедии, чтобы дать точный ответ.\n"
+        "7. Если ты не уверена в ответе на вопрос, связанный с реальным миром, всегда перепроверяй себя через Википедию. "
+        "Это помогает избежать ошибок и быть полезным другом.\n"
+        "8. Для этого напиши в своём ответе `[WIKI: твой запрос]`. Ты получишь краткую выдержку из статьи и сможешь использовать её в ответе.\n"
+        "9. Не говори 'согласно Википедии...' или 'я поискала в Википедии...', просто используй информацию, как будто ты её уже знала."
         # --- КОНЕЦ ПРАВИЛ ---
     )
 }
@@ -114,6 +124,20 @@ def set_typing(chat_id):
     """Показывает статус 'печатает' в чате (вызывается в фоне)."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
     requests.post(url, json={'chat_id': chat_id, 'action': 'typing'})
+
+def search_wikipedia(query, lang='ru'):
+    """
+    Ищет страницу в Википедии и возвращает её краткое описание (саммари).
+    """
+    user_agent = "KirenaBot/1.0 (https://t.me/your_bot; your_email@example.com)"
+    wiki_wiki = wikipediaapi.Wikipedia(user_agent, lang)
+    
+    page = wiki_wiki.page(query)
+    if page.exists():
+        # Берем только первые 200 символов, чтобы ответ был компактным
+        return f"📖 {page.title}\n{page.summary[0:200]}...\n🔗 {page.fullurl}"
+    else:
+        return f"🤔 К сожалению, я не нашла статью по запросу «{query}». Попробуй переформулировать."
 
 # ------------------------------------------------------------
 # Новые функции для исключения участников
@@ -472,6 +496,20 @@ def webhook():
                     })
             return 'OK'
         processing_chats.add(lock_key)
+
+        # --- Обработка запросов к Википедии ---
+    if text and '[WIKI:' in text:
+        start = text.find('[WIKI:') + 6
+        end = text.find(']', start)
+        if end != -1:
+            query = text[start:end].strip()
+            wiki_response = search_wikipedia(query)
+            send_telegram_message(chat_id, wiki_response)
+            # Снимаем блокировку, потому что ответ уже отправлен без Groq
+            with processing_lock:
+                processing_chats.discard(lock_key)
+            return 'OK'
+    # --- Конец обработки Википедии ---
 
     try:
         history = load_history(chat_id)
