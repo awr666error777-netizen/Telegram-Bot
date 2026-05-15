@@ -535,7 +535,16 @@ def webhook():
                 # send_telegram_message(chat_id, result)
                 
                 # Пока заглушка для теста:
-                send_telegram_message(chat_id, f"✅ Команда на редактирование принята. Файл: {file_path}")
+                            if len(params) >= 3:
+                file_path = params[0].strip()
+                commit_msg = params[1].strip()
+                new_content = params[2].strip()
+                
+                # --- Реальный вызов функции ---
+                repo_name = "Telegram-Bot"  # Например: "my-telegram-bot"
+                result = edit_file_in_github(repo_name, file_path, new_content, commit_msg)
+                send_telegram_message(chat_id, result)
+                # --- Конец реального вызова ---
             else:
                 send_telegram_message(chat_id, "Формат: `[EDIT: путь_к_файлу | комментарий | содержимое]`")
         else:
