@@ -4,3 +4,4 @@ supabase
 flask
 gunicorn
 wikipedia-api
+PyGithub
