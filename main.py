@@ -473,30 +473,6 @@ def webhook():
         )
         return 'OK'
 
-                # --- Умная защита от двойных сообщений ---
-    lock_key = (chat_id, user_id)
-
-    with processing_lock:
-        if lock_key in processing_chats:
-            # Пытаемся удалить "лишнее" сообщение
-            delete_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage"
-            msg_id_to_delete = msg['message_id']
-            resp = requests.post(delete_url, json={
-                'chat_id': chat_id,
-                'message_id': msg_id_to_delete
-            })
-            if not resp.json().get('ok'):
-                # Если удалить не удалось (например, в личке), шлём предупреждение и удаляем его через 3 секунды
-                warn_msg = send_telegram_message_return(chat_id, "Кирена пока занята ответом на предыдущее сообщение. Подожди немного, хорошо?")
-                if warn_msg:
-                    time.sleep(3)
-                    requests.post(delete_url, json={
-                        'chat_id': chat_id,
-                        'message_id': warn_msg['message_id']
-                    })
-            return 'OK'
-        processing_chats.add(lock_key)
-
         # --- Обработка запросов к Википедии ---
     if text and '[WIKI:' in text:
         start = text.find('[WIKI:') + 6
