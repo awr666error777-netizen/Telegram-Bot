@@ -3,3 +3,4 @@ groq
 supabase
 flask
 gunicorn
+wikipedia-api
