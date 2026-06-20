@@ -617,7 +617,7 @@ def webhook():
 
         send_telegram_message(chat_id, answer)
 
-        except Exception as e:
+    except Exception as e:
         error_str = str(e)
         error_msg = f"Ошибка: {error_str}"
         try:
