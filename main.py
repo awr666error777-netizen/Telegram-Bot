@@ -474,8 +474,14 @@ def webhook():
         supabase.table('global_facts').delete().eq('source_chat_id', chat_id).execute()
         try:
             supabase.table('style_examples').delete().eq('chat_id', chat_id).execute()
-        except Exception:
+            except Exception as e:
+        error_msg = f"Ошибка: {str(e)}"
+        try:
+            send_telegram_message(chat_id, error_msg)
+        except:
             pass
+        # Дополнительно: отправь админу
+        notify_admin(f"{str(e)}\nЧат: {chat_id}\nТекст: {text[:200]}")
         send_telegram_message(chat_id, "🗑️ Всё забыто (наверн). Начинаем с чистого листа!")
         return 'OK'
 
