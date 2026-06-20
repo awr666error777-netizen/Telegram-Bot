@@ -115,6 +115,15 @@ def set_typing(chat_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction"
     requests.post(url, json={'chat_id': chat_id, 'action': 'typing'})
 
+def notify_admin(error_text):
+    admin_id = int(os.environ.get('AUTHORIZED_USER_ID', 0))
+    if admin_id:
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+            requests.post(url, json={'chat_id': admin_id, 'text': f"⚠️ Ошибка у Киры:\n{error_text}"})
+        except:
+            pass
+            
 # ------------------------------------------------------------
 # Новые функции для исключения участников
 # ------------------------------------------------------------
@@ -532,6 +541,8 @@ def webhook():
             send_telegram_message(chat_id, error_msg)
         except:
             pass
+        # Дополнительно: отправь админу
+        notify_admin(f"{str(e)}\nЧат: {chat_id}\nТекст: {text[:200]}")
     finally:
         with processing_lock:
             processing_chats.discard(lock_key)
