@@ -628,7 +628,7 @@ def webhook():
         if admin_id:
             try:
                 url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-                requests.post(url, json={'chat_id': admin_id, 'text': f"⚠️ Ошибка у Киры:\n{str(e)}\nЧат: {chat_id}\nТекст: {text[:200]}"})
+                requests.post(url, json={'chat_id': admin_id, 'text': f"⚠️ Ошибка у Кирены:\n{str(e)}\nЧат: {chat_id}\nТекст: {text[:200]}"})
             except:
                 pass
     finally:
