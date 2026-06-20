@@ -617,18 +617,24 @@ def webhook():
 
         send_telegram_message(chat_id, answer)
 
-    except Exception as e:
-        error_msg = f"Ошибка: {str(e)}"
+        except Exception as e:
+        error_str = str(e)
+        error_msg = f"Ошибка: {error_str}"
         try:
             send_telegram_message(chat_id, error_msg)
         except:
             pass
-        # Отправляем админу (если установлен AUTHORIZED_USER_ID)
+        # Отправляем админу расширенную информацию
         admin_id = int(os.environ.get('AUTHORIZED_USER_ID', 0))
         if admin_id:
             try:
+                import traceback
+                detail = f"⚠️ Ошибка у Киры:\n{error_str}\nЧат: {chat_id}\nТекст: {text[:200]}\n\nТрассировка:\n{traceback.format_exc()}"
+                # обрезаем на случай очень длинного лога
+                if len(detail) > 4000:
+                    detail = detail[:4000]
                 url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-                requests.post(url, json={'chat_id': admin_id, 'text': f"⚠️ Ошибка у Кирены:\n{str(e)}\nЧат: {chat_id}\nТекст: {text[:200]}"})
+                requests.post(url, json={'chat_id': admin_id, 'text': detail})
             except:
                 pass
     finally:
