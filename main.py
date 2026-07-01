@@ -453,6 +453,7 @@ def webhook():
             return 'OK'
 
     # Обнаружение намерения исключить
+    # Обнаружение намерения исключить
     kick_triggers = ['исключи', 'забань', 'выгони', 'кикни', 'кик', 'заблокируй', 'убери']
     if text and any(trigger in text.lower() for trigger in kick_triggers):
         target_id = None
@@ -466,18 +467,52 @@ def webhook():
                     target_mention = text[offset:offset+length]
                     break
 
+        # Если цель не указана, сохраняем "неполный" запрос и просим уточнить
         if not target_id:
+            supabase.table('kick_requests').insert({
+                'chat_id': chat_id,
+                'requester_id': user_id,
+                'target_id': None    # <-- теперь разрешено
+            }).execute()
             send_telegram_message(chat_id, "Кого именно исключить? Пожалуйста, упомяни человека через @.")
             return 'OK'
 
+        # Цель указана – сохраняем полноценный запрос и просим причину
         supabase.table('kick_requests').insert({
             'chat_id': chat_id,
             'requester_id': user_id,
             'target_id': target_id
         }).execute()
-
         send_telegram_message(chat_id, f"За что исключить {target_mention}? Назови причину.")
         return 'OK'
+
+    # --- Обработка ответа с @username, когда мы ждали уточнения ---
+    if chat_id < 0 and text and not any(trigger in text.lower() for trigger in kick_triggers):
+        # Ищем незавершённый запрос (target_id IS NULL)
+        pending = supabase.table('kick_requests').select('*') \
+            .eq('chat_id', chat_id) \
+            .eq('requester_id', user_id) \
+            .is_('target_id', 'null') \
+            .execute()
+        if pending.data:
+            target_id = None
+            target_mention = "участника"
+            if 'entities' in msg:
+                for ent in msg['entities']:
+                    if ent['type'] == 'mention' and 'user' in ent:
+                        target_id = ent['user']['id']
+                        offset = ent['offset']
+                        length = ent['length']
+                        target_mention = text[offset:offset+length]
+                        break
+            if target_id:
+                # Обновляем запрос, добавляя цель
+                req_id = pending.data[0]['id']
+                supabase.table('kick_requests').update({'target_id': target_id}).eq('id', req_id).execute()
+                send_telegram_message(chat_id, f"За что исключить {target_mention}? Назови причину.")
+            else:
+                send_telegram_message(chat_id, "Я всё ещё жду @username. Упомяни человека, которого нужно исключить.")
+            return 'OK'
     # --- Конец команд исключения ---
 
     # Команда полной очистки памяти
