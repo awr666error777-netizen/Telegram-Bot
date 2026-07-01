@@ -194,7 +194,7 @@ def evaluate_kick_reason(reason_text):
             messages=[{"role": "user", "content": prompt}],
             model=MODEL_NAME,
             temperature=0.1,
-            max_tokens=10
+            max_tokens=512
         )
         result = response.choices[0].message.content.strip().lower()
         return 'серьёзно' in result
@@ -582,7 +582,7 @@ def webhook():
             messages=history,
             model=MODEL_NAME,
             temperature=0.7,
-            max_tokens=512
+            max_tokens=1024
         )
         raw_answer = chat_completion.choices[0].message.content
 
